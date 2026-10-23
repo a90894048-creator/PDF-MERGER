@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>PDF 병합기</title>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<style>
+  body { font-family: 'Malgun Gothic', sans-serif; max-width: 580px; margin: 36px auto; padding: 0 16px; color: #222; }
+  h2 { font-size: 1.2rem; margin-bottom: 8px; }
+  button { cursor: pointer; font-family: inherit; }
+
+  #drop-zone {
+    width: 100%; padding: 26px 14px; border: 2px dashed #bbb;
+    background: #fafafa; border-radius: 8px; font-size: .92rem; color: #666;
+    text-align: center; transition: .15s; position: relative;
+  }
+  #drop-zone:hover, #drop-zone.over { border-color: #5555ff; color: #5555ff; background: #f0f0ff; }
+  #drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+  #list { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; background: #fff;
+  }
+  .row.checked { background: #f0f0ff; border-color: #7777ff; }
+  .row input[type=checkbox] { width: 16px; height: 16px; accent-color: #5555ff; flex-shrink: 0; cursor: pointer; }
+  .row .num  { font-size: .72rem; color: #999; width: 16px; text-align: center; flex-shrink: 0; }
+  .row .name { flex: 1; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .size { font-size: .72rem; color: #bbb; flex-shrink: 0; }
+  .row .arr  { display: flex; gap: 2px; }
+  .row .arr button { padding: 2px 6px; font-size: .72rem; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; }
+  .row .arr button:hover:not(:disabled) { background: #ddd; }
+  .row .arr button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .row .del  { border: none; background: none; color: #ccc; font-size: .95rem; padding: 0 2px; }
+  .row .del:hover { color: #e44; }
+
+  .sep { height: 1px; background: #eee; margin: 10px 0; }
+
+  .opt-row { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: #444; }
+  .opt-row input[type=checkbox] { width: 15px; height: 15px; accent-color: #5555ff; cursor: pointer; }
+
+  label.field { display: block; font-size: .82rem; color: #666; margin-bottom: 3px; }
+  input[type=text] {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: .9rem; outline: none; font-family: inherit;
+    box-sizing: border-box;
+  }
+  input[type=text]:focus { border-color: #5555ff; }
+
+  .folder-row { display: flex; gap: 6px; align-items: center; }
+  .folder-row input[type=text] { flex: 1; color: #888; background: #fafafa; }
+  .folder-btn {
+    padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px;
+    background: #fff; font-size: .82rem; white-space: nowrap;
+  }
+  .folder-btn:hover { border-color: #5555ff; color: #5555ff; }
+
+  .row-btns { display: flex; gap: 6px; }
+  .row-btns button {
+    flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 5px;
+    background: #fff; font-size: .78rem; color: #555;
+  }
+  .row-btns button:hover { border-color: #5555ff; color: #5555ff; }
+
+  #go-btn {
+    width: 100%; padding: 13px; background: #5555ff; color: #fff;
+    border: none; border-radius: 7px; font-size: 1rem; font-weight: 700; margin-top: 2px;
+  }
+  #go-btn:hover:not(:disabled) { background: #3333dd; }
+  #go-btn:disabled { background: #aaa; cursor: not-allowed; }
+
+  #prog { display: none; height: 4px; background: #eee; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  #prog.show { display: block; }
+  #prog-fill { height: 100%; background: #5555ff; width: 0%; transition: width .2s; }
+  #msg { font-size: .82rem; color: #666; text-align: center; min-height: 18px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h2>📄 PDF 병합기</h2>
+
+<div id="drop-zone">
+  <input type="file" id="file-input" multiple accept=".pdf">
+  📂 클릭하거나 PDF 파일을 여기에 드래그하세요
+</div>
+
+<div id="list"></div>
+
+<div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+
+  <div class="row-btns">
+    <button onclick="selAll()">전체 선택</button>
+    <button onclick="selNone()">전체 해제</button>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- 저장 폴더 선택 -->
+  <div>
+    <label class="field">📁 저장 위치 (Chrome/Edge에서 폴더 선택 가능)</label>
+    <div class="folder-row">
+      <input type="text" id="folder-display" readonly placeholder="기본 다운로드 폴더">
+      <button class="folder-btn" onclick="pickFolder()">폴더 선택</button>
+    </div>
+  </div>
+
+  <!-- 저장 파일명 -->
+  <div>
+    <label class="field">💾 저장 파일명</label>
+    <input type="text" id="oname" value="merged_output">
+  </div>
+
+  <!-- 옵션 -->
+  <label class="opt-row">
+    <input type="checkbox" id="div-chk" checked>
+    📑 파일명 구분 페이지 삽입
+  </label>
+
+  <label class="opt-row">
+    <input type="checkbox" id="gray-chk" checked>
+    ⬛ 흑백으로 변환
+  </label>
+
+  <button id="go-btn" disabled onclick="run()">🔗 선택한 파일 병합</button>
+  <div id="prog"><div id="prog-fill"></div></div>
+  <div id="msg"></div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+const files = [], sel = [];
+let _dirHandle = null;  // 저장 폴더 핸들
+
+// ── 폴더 선택 ──
+async function pickFolder() {
+  if (!window.showDirectoryPicker) {
+    alert('이 브라우저는 폴더 선택을 지원하지 않습니다.\nChrome 또는 Edge에서 열어주세요. (기본 다운로드 폴더로 저장됩니다)');
+    return;
+  }
+  try {
+    // mode:'readwrite' → 폴더를 고르는 이 시점에 쓰기 권한까지 함께 받는다.
+    // (나중에 저장할 때 권한을 요청하면 클릭 활성화가 이미 만료돼 실패한다)
+    _dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    document.getElementById('folder-display').value = _dirHandle.name;
+  } catch (e) {
+    if (e.name !== 'AbortError') alert('폴더 선택 오류: ' + e.message);
+  }
+}
+
+// ── 쓰기 권한 확보 ──
+// 반드시 클릭 직후(사용자 활성화가 살아 있을 때) 호출해야 한다.
+async function ensureWritePermission(handle) {
+  const opt = { mode: 'readwrite' };
+  if (await handle.queryPermission(opt) === 'granted') return true;
+  return await handle.requestPermission(opt) === 'granted';
+}
+
+// ── 파일 추가 ──
+function addFiles(list) {
+  [...list].forEach(f => {
+    if (!f.name.toLowerCase().endsWith('.pdf')) return;
+    files.push({ id: Date.now() + Math.random(), file: f, name: f.name, size: f.size });
+  });
+  render();
+}
+document.getElementById('file-input').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', e => { if (!dz.contains(e.relatedTarget)) dz.classList.remove('over'); });
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  addFiles([...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.pdf')));
+});
+
+// ── 렌더 ──
+function render() {
+  const el = document.getElementById('list');
+  el.innerHTML = '';
+  files.forEach(f => {
+    const on = sel.includes(f.id);
+    const d = document.createElement('div');
+    d.className = 'row' + (on ? ' checked' : '');
+    const fi = files.indexOf(f);
+    const selOrder = files.filter(x => sel.includes(x.id)).indexOf(f);
+    d.innerHTML = `
+      <input type="checkbox" ${on?'checked':''} onchange="toggle(${f.id})">
+      <span class="num">${on ? selOrder+1 : ''}</span>
+      <span class="name" title="${f.name}">${f.name}</span>
+      <span class="size">${fmt(f.size)}</span>
+      <div class="arr">
+        <button onclick="mv(${f.id},-1)" ${fi===0?'disabled':''}>▲</button>
+        <button onclick="mv(${f.id},1)" ${fi===files.length-1?'disabled':''}>▼</button>
+      </div>
+      <button class="del" onclick="rm(${f.id})">✕</button>`;
+    el.appendChild(d);
+  });
+  document.getElementById('go-btn').disabled = sel.length === 0;
+}
+
+function toggle(id) { const i=sel.indexOf(id); i===-1?sel.push(id):sel.splice(i,1); render(); }
+function mv(id,d)   { const i=files.findIndex(f=>f.id===id); if(i<0)return; const j=i+d; if(j<0||j>=files.length)return; [files[i],files[j]]=[files[j],files[i]]; render(); }
+function rm(id)     { const fi=files.findIndex(f=>f.id===id); if(fi>-1)files.splice(fi,1); const si=sel.indexOf(id); if(si>-1)sel.splice(si,1); render(); }
+function selAll()   { sel.length=0; files.forEach(f=>sel.push(f.id)); render(); }
+function selNone()  { sel.length=0; render(); }
+function fmt(b)     { return b<1048576?(b/1024).toFixed(0)+'KB':(b/1048576).toFixed(1)+'MB'; }
+function setMsg(t)  { document.getElementById('msg').textContent=t; }
+function setProg(p) { document.getElementById('prog').classList.add('show'); document.getElementById('prog-fill').style.width=p+'%'; }
+
+// ── 구분 페이지: canvas로 한글 직접 렌더 → JPEG 삽입 ──
+async function makeDividerJpeg(label, index, total, isGray) {
+  const W = 1190, H = 1684;  // A4 x2 해상도
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = isGray ? '#efefef' : '#f0f0ff';
+  ctx.fillRect(0, 0, W, H);
+
+  // 구분선
+  ctx.strokeStyle = isGray ? '#bbb' : '#9999ee';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(80, H/2-80); ctx.lineTo(W-80, H/2-80); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(80, H/2+60); ctx.lineTo(W-80, H/2+60); ctx.stroke();
+
+  // 파일명 (브라우저가 한글 자동 처리)
+  ctx.fillStyle = isGray ? '#111' : '#2233aa';
+  ctx.font = 'bold 54px Malgun Gothic, Apple SD Gothic Neo, sans-serif';
+  ctx.fillText(label.length > 36 ? label.slice(0,36)+'…' : label, 80, H/2+18);
+
+  // 순서
+  ctx.fillStyle = isGray ? '#666' : '#6677bb';
+  ctx.font = '32px Malgun Gothic, Apple SD Gothic Neo, sans-serif';
+  ctx.fillText(`${index+1}  /  ${total}`, 80, H/2+100);
+
+  return new Promise(res => canvas.toBlob(b => b.arrayBuffer().then(res), 'image/jpeg', 0.9));
+}
+
+// ── 페이지 흑백 렌더 ──
+// scale 3 ≈ 216 DPI (PDF 기본 72 DPI × 3)
+async function renderGrayJpeg(pdf, pageNum) {
+  const page = await pdf.getPage(pageNum);
+  const vp   = page.getViewport({ scale: 3 });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+
+  // 픽셀 grayscale 변환
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+    d[i] = d[i+1] = d[i+2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  page.cleanup();
+
+  return new Promise(res => canvas.toBlob(b => b.arrayBuffer().then(res), 'image/jpeg', 0.95));
+}
+
+// ── 병합 실행 ──
+async function run() {
+  if (!sel.length) return;
+  const name   = (document.getElementById('oname').value.trim() || 'merged_output').replace(/\.pdf$/i,'') + '.pdf';
+  const addDiv = document.getElementById('div-chk').checked;
+  const doGray = document.getElementById('gray-chk').checked;
+
+  // 병합 전에 먼저 권한 확인 — 여기는 버튼 클릭 직후라 아직 사용자 활성화가 유효하다.
+  // (병합이 끝난 뒤에 요청하면 "User activation is required" 오류가 난다)
+  if (_dirHandle && !await ensureWritePermission(_dirHandle)) {
+    _dirHandle = null;
+    document.getElementById('folder-display').value = '';
+    setMsg('⚠️ 폴더 쓰기 권한이 없어 기본 다운로드 폴더로 저장합니다.');
+  }
+
+  document.getElementById('go-btn').disabled = true;
+  setProg(0); setMsg('준비 중…');
+
+  try {
+    const { PDFDocument } = PDFLib;
+    const out = await PDFDocument.create();
+
+    const selFiles = files.filter(f => sel.includes(f.id));
+    for (let i = 0; i < selFiles.length; i++) {
+      const f = selFiles[i];
+      setProg(Math.round(i / selFiles.length * 90));
+      setMsg(`처리 중… ${i+1} / ${selFiles.length} — ${f.name}`);
+
+      // 구분 페이지 (canvas 렌더 방식 → 한글 문제 없음)
+      if (addDiv) {
+        const label    = f.name.replace(/\.pdf$/i, '');
+        const jpegBuf  = await makeDividerJpeg(label, i, selFiles.length, doGray);
+        const img      = await out.embedJpg(new Uint8Array(jpegBuf));
+        const pg       = out.addPage([595, 842]);
+        pg.drawImage(img, { x:0, y:0, width:595, height:842 });
+      }
+
+      // 본문 페이지
+      if (doGray) {
+        const buf  = await f.file.arrayBuffer();
+        const pdfJ = await pdfjsLib.getDocument({ data: buf }).promise;
+        for (let p = 1; p <= pdfJ.numPages; p++) {
+          setMsg(`처리 중… ${i+1} / ${selFiles.length} — ${f.name} (${p}/${pdfJ.numPages}쪽)`);
+          const jpegBuf = await renderGrayJpeg(pdfJ, p);
+          const img  = await out.embedJpg(new Uint8Array(jpegBuf));
+          const { width: iw, height: ih } = img.scale(1);
+          const sc = Math.min(595/iw, 842/ih);
+          const pg = out.addPage([iw*sc, ih*sc]);
+          pg.drawImage(img, { x:0, y:0, width:iw*sc, height:ih*sc });
+        }
+        await pdfJ.destroy();
+      } else {
+        const buf   = await f.file.arrayBuffer();
+        const src   = await PDFDocument.load(buf, { ignoreEncryption: true });
+        const pages = await out.copyPages(src, src.getPageIndices());
+        pages.forEach(p => out.addPage(p));
+      }
+    }
+
+    setProg(97); setMsg('저장 중…');
+    const bytes = await out.save();
+    const blob  = new Blob([bytes], { type: 'application/pdf' });
+
+    // 폴더가 선택된 경우 → 해당 폴더에 저장
+    if (_dirHandle) {
+      try {
+        const fh = await _dirHandle.getFileHandle(name, { create: true });
+        const wr = await fh.createWritable();
+        await wr.write(blob); await wr.close();
+        setProg(100); setMsg(`✅ 완료!  📁 ${_dirHandle.name}\\${name}`);
+        return;
+      } catch (e) {
+        // 폴더 저장이 실패해도 병합 결과를 버리지 않고 다운로드로 넘긴다
+        console.warn('폴더 저장 실패 → 다운로드로 대체', e);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name; a.click();
+        setProg(100); setMsg(`✅ 완료! (폴더 저장 실패 → 다운로드 폴더에 저장됨)`);
+        return;
+      }
+    } else {
+      // 폴더 미선택 → Save As 다이얼로그 시도 (Chrome/Edge)
+      if (window.showSaveFilePicker) {
+        try {
+          const fh = await window.showSaveFilePicker({
+            suggestedName: name,
+            types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
+          });
+          const wr = await fh.createWritable();
+          await wr.write(blob); await wr.close();
+          setProg(100); setMsg(`✅ 완료! — ${name}`);
+          return;
+        } catch(e) { if (e.name === 'AbortError') { setMsg('저장 취소됨'); return; } }
+      }
+      // 최종 폴백 → 기본 다운로드
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name; a.click();
+      setProg(100); setMsg(`✅ 완료! (${selFiles.length}개 병합)`);
+    }
+
+  } catch (e) {
+    setMsg('❌ 오류: ' + e.message);
+    console.error(e);
+  } finally {
+    document.getElementById('go-btn').disabled = sel.length === 0;
+  }
+}
+</script>
+</body>
+</html>
